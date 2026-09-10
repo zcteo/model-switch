@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import json
+import os
+import tomllib
+from typing import Any
+
+from ..core import openai_base_url, default_reasoning_level
+from ..storage import (
+    CODEX_CATALOG,
+    CODEX_CONFIG,
+    CODEX_HOME,
+    atomic_write,
+    load_models,
+    write_json,
+)
+from .base import AgentAdapter, LaunchPlan
+
+
+def _toml_key(key: str) -> str:
+    if key and all(c.isalnum() or c in "-_" for c in key):
+        return key
+    return json.dumps(key, ensure_ascii=False)
+
+
+def _toml_value(value: Any) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return '""'
+    if isinstance(value, (str, int, float)):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    raise TypeError(f"不支持的 TOML 标量类型：{type(value)}")
+
+
+def _toml_table(table: dict[str, Any], prefix: str = "") -> list[str]:
+    lines: list[str] = []
+    for key, value in table.items():
+        if isinstance(value, dict):
+            continue
+        if isinstance(value, list) and any(isinstance(v, dict) for v in value):
+            continue
+        lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
+
+    for key, value in table.items():
+        if isinstance(value, dict):
+            name = f"{prefix}.{_toml_key(key)}" if prefix else _toml_key(key)
+            lines.append("")
+            lines.append(f"[{name}]")
+            lines.extend(_toml_table(value, name))
+        elif isinstance(value, list) and any(isinstance(v, dict) for v in value):
+            name = f"{prefix}.{_toml_key(key)}" if prefix else _toml_key(key)
+            for item in value:
+                lines.append("")
+                lines.append(f"[[{name}]]")
+                lines.extend(_toml_table(item, name))
+    return lines
+
+
+def dump_toml(data: dict[str, Any]) -> str:
+    return "\n".join(_toml_table(data)).rstrip() + "\n"
+
+
+def _write_catalog(model_ids: list[str]) -> None:
+    by_id = {m.get("id"): m for m in load_models()}
+    models = []
+    for model_id in model_ids:
+        m = by_id[model_id]
+        levels = m.get("reasoning_levels") or ["low", "medium", "high"]
+        vision = m.get("capabilities", {}).get("vision", True)
+        models.append(
+            {
+                "slug": m.get("id", model_id),
+                "display_name": m.get("display_name") or model_id,
+                "description": "model-switch local catalog",
+                "default_reasoning_level": default_reasoning_level(m),
+                "supported_reasoning_levels": [{"effort": x, "description": f"{x} effort"} for x in levels],
+                "shell_type": "shell_command",
+                "visibility": "list",
+                "supported_in_api": True,
+                "priority": 0,
+                "base_instructions": "",
+                "supports_reasoning_summaries": True,
+                "default_reasoning_summary": "auto",
+                "support_verbosity": False,
+                "truncation_policy": {"mode": "tokens", "limit": 10000},
+                "supports_parallel_tool_calls": m.get("capabilities", {}).get("tool_call", True),
+                "supports_image_detail_original": vision,
+                "context_window": m.get("context_window", 1_000_000),
+                "max_context_window": m.get("context_window", 1_000_000),
+                "effective_context_window_percent": 95,
+                "experimental_supported_tools": [],
+                "prefer_websockets": False,
+            }
+        )
+    write_json(CODEX_CATALOG, {"models": models})
+
+
+class CodexAdapter(AgentAdapter):
+    id = "codex"
+    label = "Codex"
+    required_api = "responses"
+    endpoint = "/v1/responses"
+    default_binary = "codex"
+    binary_env = "MODEL_SWITCH_CODEX_BIN"
+
+    def _runtime_env(self, config: dict[str, Any]) -> dict[str, str]:
+        return {
+            "CODEX_HOME": str(CODEX_HOME),
+            "MODEL_SWITCH_API_KEY": config.get("api_key", ""),
+        }
+
+    def switch(
+        self,
+        config: dict[str, Any],
+        model: dict[str, Any],
+        model_ids: list[str],
+    ) -> None:
+        _write_catalog(model_ids)
+        base = openai_base_url(config)
+        data: dict[str, Any] = {}
+        if CODEX_CONFIG.exists():
+            with CODEX_CONFIG.open("rb") as f:
+                data = tomllib.load(f)
+        CODEX_HOME.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        data["model"] = model["id"]
+        data["model_provider"] = "model-switch"
+        data["model_catalog_json"] = str(CODEX_CATALOG)
+        data["model_context_window"] = int(model.get("context_window", 1_000_000))
+        data["openai_base_url"] = base
+        data.setdefault("sandbox_mode", "danger-full-access")
+        data.setdefault("approval_policy", "never")
+        tui = dict(data.get("tui") or {})
+        tui.setdefault("status_line", ["model-with-reasoning", "current-dir", "context-remaining"])
+        data["tui"] = tui
+        providers = data.get("model_providers") or {}
+        providers["model-switch"] = {
+            "name": "model-switch",
+            "base_url": base,
+            "env_key": "MODEL_SWITCH_API_KEY",
+            "wire_api": "responses",
+        }
+        data["model_providers"] = providers
+        atomic_write(CODEX_CONFIG, dump_toml(data))
+
+    def launch(
+        self,
+        config: dict[str, Any],
+        model: dict[str, Any],
+        passthrough_args: list[str],
+    ) -> LaunchPlan:
+        binary = os.environ.get(self.binary_env, self.default_binary)
+        return LaunchPlan(binary=binary, args=list(passthrough_args), env=self._runtime_env(config))

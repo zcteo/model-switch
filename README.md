@@ -1,0 +1,214 @@
+# model-switch
+
+一个纯本地 Python CLI。它只做两件事：
+
+1. 从一个聚合后端获取模型列表；
+2. 一键切换 Claude Code / Codex 的当前模型。
+
+## 安装
+
+开发模式安装（推荐，源码修改后立即生效）：
+
+```bash
+cd /path/to/model-switch
+python3 -m pip install -e .
+```
+
+这种模式主要注册入口和源码路径映射。
+
+如果希望把包完整安装到：
+
+```text
+~/.local/lib/python3.12/site-packages
+```
+
+使用常规安装：
+
+```bash
+cd /path/to/model-switch
+python3 -m pip install --prefix "$HOME/.local" --upgrade .
+```
+
+安装后可用 `ms` 或 `model-switch` 命令，命令入口通常在：
+
+```text
+~/.local/bin
+```
+
+## 卸载
+
+卸载 Python 包和命令入口：
+
+```bash
+python3 -m pip uninstall model-switch
+```
+
+如果在项目目录里，可以顺带删除本地的打包元数据：
+
+```bash
+rm -rf model_switch.egg-info/
+```
+
+如需彻底清理 `ms` 保存的后端配置、模型列表，以及隔离的 Claude/Codex 配置，可删除：
+
+```bash
+rm -rf ~/.model-switch
+```
+
+注意：这会删除本地模型数据和模型切换配置，不会修改原生 `~/.claude` 和 `~/.codex` 配置目录。
+
+## 配置聚合后端
+
+```bash
+ms config \
+  --base-url https://your-aggregator.example.com \
+  --api-key sk-xxx
+```
+
+如果后端是 OpenAI 兼容接口，`base_url` 可以写成根地址；工具会自动请求：
+
+```text
+{base_url}/v1/models
+```
+
+## 获取模型
+
+```bash
+ms fetch
+```
+
+模型保存在：
+
+```text
+~/.model-switch/models.json
+```
+
+查看：
+
+```bash
+ms models
+```
+
+## 一键切换模型
+
+交互式界面：
+
+```bash
+ms use
+```
+
+界面里先用 ↑/↓ 移动，enter 确认；All agents 会同时选中 Claude Code 和 Codex。
+
+切换时会写这些文件：
+
+### Claude Code
+
+注入文件放在：
+
+```text
+~/.model-switch/claude/settings.json
+~/.model-switch/claude/.claude.json
+```
+
+`ms claude` 启动时会通过以下方式生效：
+
+```text
+CLAUDE_CONFIG_DIR=~/.model-switch/claude
+claude --settings ~/.model-switch/claude/settings.json
+```
+
+### Codex
+
+注入文件放在：
+
+```text
+~/.model-switch/codex/config.toml
+~/.model-switch/codex/models.json
+```
+
+`ms codex` 启动时会通过以下方式生效：
+
+```text
+CODEX_HOME=~/.model-switch/codex
+```
+
+原生 `~/.claude/settings.json` 和 `~/.codex/config.toml` 不会被修改。
+
+## 自动化与权限参数
+
+`ms claude` 会像 `sc` 一样自动注入隔离运行所需的参数和环境变量：
+
+- Claude Code 启动参数：
+  - `--dangerously-skip-permissions`
+- Claude Code 隔离配置：
+  - `skipDangerousModePermissionPrompt: true`
+  - `showThinkingSummaries: true`
+  - `alwaysThinkingEnabled: true`
+  - `effortLevel: high`（若模型支持）
+  - `CLAUDE_CODE_SANDBOXED=1`
+  - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+- Codex 隔离配置：
+  - `sandbox_mode = "danger-full-access"`
+  - `approval_policy = "never"`
+  - TUI 状态栏显示模型、目录和剩余上下文
+
+Claude 的管理子命令（例如 `config`、`doctor`、`mcp`）不会自动追加 `--dangerously-skip-permissions`。如果以 root 运行，也会像 `sc` 一样跳过该启动参数。
+
+需要传参给原工具时使用：
+
+```bash
+ms claude -- --help
+ms codex -- --help
+```
+
+## 本地模型能力修改
+
+## 扩展新 Agent
+
+Agent 相关逻辑已统一为适配器接口。当前适配器注册在：
+
+```text
+model_switch/agents/registry.py
+```
+
+新增 Agent 时，创建一个新的适配器类并实现：
+
+```python
+class ExampleAdapter(AgentAdapter):
+    id = "example"
+    label = "Example Agent"
+    required_api = "responses"
+    endpoint = "/v1/responses"
+    default_binary = "example"
+    binary_env = "MODEL_SWITCH_EXAMPLE_BIN"
+
+    def switch(self, config, model, model_ids): ...
+    def launch(self, config, model, passthrough_args): ...
+```
+
+然后把实例加入 `registry.py` 的 `_AGENTS` 即可：
+
+```python
+_AGENTS = {
+    adapter.id: adapter
+    for adapter in (ClaudeAdapter(), CodexAdapter(), ExampleAdapter())
+}
+```
+
+加入后，`ms use`、`ms status`、`--example-only` 和 `ms example` 会自动出现，不需要再修改 UI 或 CLI 主流程。
+
+## 恢复会话
+
+可以直接使用：
+
+```bash
+ms claude resume <session-id>
+ms codex resume <session-id>
+```
+
+不需要通过 `--` 透传。省略 `<session-id>` 时，会使用原工具自己的会话选择器：
+
+```bash
+ms claude resume
+ms codex resume
+```

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-switch"
+version = "0.2.0"
+description = "Fetch models from one aggregated backend and switch Claude Code / Codex models locally"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+model-switch = "model_switch.cli:main"
+ms = "model_switch.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["model_switch*"]
