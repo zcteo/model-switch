@@ -80,6 +80,7 @@ class ClaudeAdapter(AgentAdapter):
 
     def _runtime_env(self, config: dict[str, Any], model: dict[str, Any]) -> dict[str, str]:
         env = {
+            "CLAUDE_CONFIG_DIR": str(CLAUDE_HOME),
             "ANTHROPIC_BASE_URL": anthropic_base_url(config),
             "ANTHROPIC_AUTH_TOKEN": config.get("api_key", ""),
             "CLAUDE_CODE_MAX_CONTEXT_TOKENS": str(model.get("context_window", 1_000_000)),
@@ -138,7 +139,7 @@ class ClaudeAdapter(AgentAdapter):
         if self.is_resume_request(passthrough_args):
             return LaunchPlan(
                 binary=binary,
-                args=["--resume", *passthrough_args[1:]],
+                args=["--settings", str(CLAUDE_SETTINGS), "--resume", *passthrough_args[1:]],
                 env=self._runtime_env(config, model),
             )
         args = ["--settings", str(CLAUDE_SETTINGS), *passthrough_args]

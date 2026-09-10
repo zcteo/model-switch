@@ -79,6 +79,13 @@ def normalize_model(raw: dict[str, Any], existing: dict[str, Any] | None = None)
     else:
         merged.setdefault("display_name", model_id)
 
+    # 上下文长度：优先用上游返回的值，缺失时落到默认值（100 万），
+    # 这样 fetch 落盘的模型记录一定会带 context_window 字段。
+    if "context_window" in raw:
+        merged["context_window"] = int(raw["context_window"])
+    else:
+        merged.setdefault("context_window", DEFAULT_CONTEXT_WINDOW)
+
     if "support_apis" in raw:
         merged["supported_apis"] = _normalize_apis(raw["support_apis"])
     elif "openai_api" in raw:
