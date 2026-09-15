@@ -11,7 +11,7 @@
 
 ```bash
 cd /path/to/model-switch
-python3 -m pip install -e .
+python3 -m pip install -e . --break-system-packages
 ```
 
 这种模式主要注册入口和源码路径映射。
@@ -26,8 +26,12 @@ python3 -m pip install -e .
 
 ```bash
 cd /path/to/model-switch
-python3 -m pip install --prefix "$HOME/.local" --upgrade .
+python3 -m pip install --upgrade . --break-system-packages
 ```
+
+不带 `--user` 时 pip 会自动选择位置：普通用户的 `site-packages` 不可写，pip 会打印 `Defaulting to user installation because normal site-packages is not writeable`，装到 `~/.local`；以 root 或 sudo 运行时则装到系统目录。所以这里不用写 `--user`，命令本身就能自适应。
+
+关于 `--break-system-packages`：Debian/Ubuntu 上的 pip 受 PEP 668 保护，默认拒绝安装，不加这个参数会直接报 `error: externally-managed-environment`（`--user` 也一样失败）。它只关闭「禁止装到系统 Python」这一项检查，不改安装位置——装到哪里仍由上面的规则决定。
 
 安装后可用 `ms` 或 `model-switch` 命令，命令入口通常在：
 
@@ -35,12 +39,60 @@ python3 -m pip install --prefix "$HOME/.local" --upgrade .
 ~/.local/bin
 ```
 
+### PATH 排查
+
+如果 `which ms` 找不到命令，说明 `~/.local/bin` 不在 `PATH` 里。临时生效：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+永久生效，追加到 `~/.bashrc`：
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+PATH 修好之前，也可以用模块方式启动（不依赖 PATH）：
+
+```bash
+python3 -m model_switch --help
+```
+
+### 安装到系统目录
+
+默认安装只影响当前用户。如果希望所有用户都能用，用 `sudo` 运行同样的命令：
+
+```bash
+cd /path/to/model-switch
+sudo python3 -m pip install --upgrade . --break-system-packages
+```
+
+此时装到：
+
+```text
+/usr/local/lib/python3.12/dist-packages/model_switch
+/usr/local/bin/ms
+/usr/local/bin/model-switch
+```
+
+`/usr/local/bin` 本来就在 `PATH` 里，不需要额外配置。
+
+注意不要在 root 下用 `-e`：editable 安装会把 `/usr/local` 里的入口指向你的源码目录，源码一旦移动或非 root 用户无法读取，系统级的 `ms` 就会失效。开发用 `-e` 装给自己，需要全局可用时用普通安装。
+
 ## 卸载
 
 卸载 Python 包和命令入口：
 
 ```bash
 python3 -m pip uninstall model-switch
+```
+
+如果当初是装到系统目录的，卸载也要加 `sudo`：
+
+```bash
+sudo python3 -m pip uninstall model-switch
 ```
 
 如果在项目目录里，可以顺带删除本地的打包元数据：
