@@ -135,11 +135,23 @@ ms fetch
 ~/.model-switch/models.json
 ```
 
-查看：
+后端不再返回的模型默认会保留，并标记为 `enabled: false` + `stale`，避免后端临时抖动把本地记录和手工修改一起抹掉。这类模型不会出现在 `ms use` 和 agent 的模型选择里。如果后端之后又重新返回它，标记会被清除、自动恢复启用。
+
+确实要删除这些失效模型时用 `-p/--prune`：
 
 ```bash
-ms models
+ms fetch --prune
 ```
+
+`-f/--force` 不保留本地任何模型信息，用后端响应重建。
+
+查看本地模型：
+
+```bash
+ms models          # Status 列显示 on / off / stale
+```
+
+切换模型见下一节。
 
 ## 一键切换模型
 
@@ -150,6 +162,22 @@ ms use
 ```
 
 界面里先用 ↑/↓ 移动，enter 确认；All agents 会同时选中 Claude Code 和 Codex。
+
+也可以直接指定模型，跳过交互，一次切换全部 agent：
+
+```bash
+ms use 7            # 切到 ms models 里的第 7 个（对应 #N 列）
+ms use kimi-k3      # 按模型 id 切换
+```
+
+序号是 1-based，与 `ms models` 输出的 `#` 列一致。指定的序号越界或模型 id 不存在时会直接报错退出，不会修改任何 agent 配置：
+
+```text
+序号超出范围：99（当前共 11 个模型）
+未找到模型：nope-not-real；用 ms models 查看本地模型列表
+```
+
+这种用法不会先刷新模型列表，序号以你当前 `ms models` 看到的结果为准；需要先同步后端时，先运行 `ms fetch`。
 
 切换时会写这些文件：
 

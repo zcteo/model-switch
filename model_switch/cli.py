@@ -11,7 +11,13 @@ import tempfile
 import unicodedata
 
 from . import __version__
-from .agents import get_agent, list_agents, refresh_agent_config
+from .agents import (
+    all_agent_ids,
+    get_agent,
+    list_agents,
+    refresh_agent_config,
+    switch_model,
+)
 from .core import backend_url, fetch_models, pick_model
 from .storage import ensure_home, load_config, load_models, save_config, save_models
 
@@ -48,8 +54,14 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
-    total, remote_count = fetch_models(args.timeout, force=args.force)
+    try:
+        total, remote_count, stale_count = fetch_models(args.timeout, force=args.force, prune=args.prune)
+    except (OSError, TimeoutError, ValueError) as exc:
+        print(f"⚠ 获取模型列表失败：{exc}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"已保存 {total} 个模型（后端返回 {remote_count} 个）")
+    if stale_count:
+        print(f"⚠ {stale_count} 个模型后端已不再返回，已保留并标记为 enabled: false（用 --prune 删除）")
     if not args.no_list:
         cmd_models_list()
 
@@ -63,7 +75,10 @@ def cmd_models_list() -> None:
     headers = ("#", "Model", "Context", "Input", "APIs", "Status")
     rows: list[tuple[str, ...]] = []
     for index, model in enumerate(models, 1):
-        enabled = "on" if model.get("enabled", True) else "off"
+        if not model.get("enabled", True):
+            status = "stale" if model.get("stale") else "off"
+        else:
+            status = "on"
         rows.append(
             (
                 f"#{index}",
@@ -71,7 +86,7 @@ def cmd_models_list() -> None:
                 str(model.get("context_window", "-")),
                 "text,image" if model.get("capabilities", {}).get("vision", True) else "text",
                 ",".join(model.get("supported_apis", [])),
-                enabled,
+                status,
             )
         )
 
@@ -140,6 +155,8 @@ def cmd_models_set(args: argparse.Namespace) -> None:
         model["supported_apis"] = args.apis
     if args.enabled is not None:
         model["enabled"] = args.enabled
+        # An explicit choice is no longer the automatic backend-gone marker.
+        model.pop("stale", None)
     if args.tool_call is not None:
         model.setdefault("capabilities", {})["tool_call"] = args.tool_call
     if args.streaming is not None:
@@ -157,9 +174,39 @@ def _refresh_models(timeout: float) -> None:
 
 
 def cmd_use(args: argparse.Namespace) -> None:
+    if args.target is not None:
+        _use_target(args.target)
+        return
     _refresh_models(args.timeout)
     from .ui import interactive_config
     interactive_config()
+
+
+def _use_target(target: str) -> None:
+    """Switch every agent to a model given by `ms models` index or by name.
+
+    Deliberately skips the model refresh: the index refers to what the user
+    just read in `ms models`, and re-fetching could shift it. Lookups are
+    resolved fully before any agent config is written, so an unknown target
+    leaves everything untouched.
+    """
+    models = load_models()
+    if not models:
+        raise SystemExit("本地没有模型；请先运行：ms fetch")
+
+    if target.isdigit():
+        index = int(target)
+        if not 1 <= index <= len(models):
+            raise SystemExit(f"序号超出范围：{index}（当前共 {len(models)} 个模型）")
+        model = models[index - 1]
+    else:
+        model = next((m for m in models if m.get("id") == target), None)
+        if model is None:
+            raise SystemExit(f"未找到模型：{target}；用 ms models 查看本地模型列表")
+
+    result = switch_model(model.get("id", ""), set(all_agent_ids()))
+    for agent_id, model_id in result["applied"].items():
+        print(f"✔ {agent_id} -> {model_id}")
 
 
 def cmd_launch(args: argparse.Namespace) -> None:
@@ -213,6 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = subs.add_parser("fetch", help="从后端获取模型列表")
     p.add_argument("--timeout", type=float, default=15.0)
     p.add_argument("-f", "--force", action="store_true", help="不保留本地任何模型信息")
+    p.add_argument("-p", "--prune", action="store_true", help="删除后端已不再返回的模型")
     p.add_argument("--no-list", action="store_true")
     p.set_defaults(func=cmd_fetch)
 
@@ -242,6 +290,11 @@ def build_parser() -> argparse.ArgumentParser:
     st.set_defaults(func=cmd_models_set)
 
     p = subs.add_parser("use", help="交互式选择并切换模型")
+    p.add_argument(
+        "target",
+        nargs="?",
+        help="直接把所有 agent 切到 ms models 的第 N 个模型，或指定模型 id",
+    )
     p.add_argument("--timeout", type=float, default=15.0)
     p.set_defaults(func=cmd_use)
 

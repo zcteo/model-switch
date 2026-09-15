@@ -91,14 +91,14 @@ def normalize_model(raw: dict[str, Any], existing: dict[str, Any] | None = None)
     elif "openai_api" in raw:
         merged["supported_apis"] = _normalize_apis(raw["openai_api"])
     else:
-        merged.setdefault("supported_apis", ["chat"])
+        merged.setdefault("supported_apis", inferred_supported_apis(model_id))
 
     # Input modality is deliberately not persisted as a list. We only derive
     # the functional vision capability from the backend when it reports it.
     capabilities = dict(merged.get("capabilities") or {})
     capabilities.setdefault("tool_call", True)
     capabilities.setdefault("streaming", True)
-    capabilities.setdefault("vision", False)
+    capabilities.setdefault("vision", True)
     if "supports_tool_call" in raw:
         capabilities["tool_call"] = bool(raw["supports_tool_call"])
     if "supports_streaming" in raw:
@@ -107,7 +107,7 @@ def normalize_model(raw: dict[str, Any], existing: dict[str, Any] | None = None)
     return merged
 
 
-def fetch_models(timeout: float = 15.0, force: bool = False) -> tuple[int, int]:
+def fetch_models(timeout: float = 15.0, force: bool = False, prune: bool = False) -> tuple[int, int, int]:
     config = load_config()
     request = urllib.request.Request(
         f"{openai_base_url(config)}/models",
@@ -127,12 +127,32 @@ def fetch_models(timeout: float = 15.0, force: bool = False) -> tuple[int, int]:
     merged: dict[str, dict[str, Any]] = {}
     for raw in raw_models:
         model = normalize_model(raw, old.get(raw.get("id")))
-        if model:
-            merged[model["id"]] = model
+        if not model:
+            continue
+        # The backend is publishing this model again: drop the stale marker
+        # and undo the automatic disable, unless the user disabled it on
+        # purpose (that clears the marker, see cmd_models_set).
+        if model.pop("stale", False) and not model.get("enabled", True):
+            model["enabled"] = True
+        merged[model["id"]] = model
+
+    # Models the backend stopped returning are kept by default so a backend
+    # that is temporarily missing entries cannot wipe local tweaks. They are
+    # disabled so they drop out of `ms use` and the agent pickers.
+    stale_count = 0
+    if not prune:
+        for model_id, model in old.items():
+            if not model_id or model_id in merged:
+                continue
+            kept = dict(model)
+            kept["enabled"] = False
+            kept["stale"] = True
+            merged[model_id] = kept
+            stale_count += 1
 
     models = sorted(merged.values(), key=lambda m: m["id"].lower())
     save_models(models)
-    return len(models), len(raw_models)
+    return len(models), len(raw_models), stale_count
 
 
 def pick_model(value: str) -> dict[str, Any]:
