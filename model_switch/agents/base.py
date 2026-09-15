@@ -25,9 +25,6 @@ class AgentAdapter(ABC):
     def supports(self, model: dict[str, Any]) -> bool:
         return self.required_api in model.get("supported_apis", [])
 
-    def is_resume_request(self, passthrough_args: list[str]) -> bool:
-        return bool(passthrough_args) and passthrough_args[0] == "resume"
-
     def unsupported_message(self, model: dict[str, Any]) -> str:
         return (
             f"⚠ 跳过 {self.label}：{model.get('id', '')} 不支持 {self.endpoint}，"

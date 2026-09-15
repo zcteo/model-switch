@@ -136,12 +136,7 @@ class ClaudeAdapter(AgentAdapter):
         passthrough_args: list[str],
     ) -> LaunchPlan:
         binary = os.environ.get(self.binary_env, self.default_binary)
-        if self.is_resume_request(passthrough_args):
-            return LaunchPlan(
-                binary=binary,
-                args=["--settings", str(CLAUDE_SETTINGS), "--resume", *passthrough_args[1:]],
-                env=self._runtime_env(config, model),
-            )
+        passthrough_args = self._normalize_resume(passthrough_args)
         args = ["--settings", str(CLAUDE_SETTINGS), *passthrough_args]
         if (
             os.geteuid() != 0
@@ -150,6 +145,13 @@ class ClaudeAdapter(AgentAdapter):
         ):
             args.insert(2, "--dangerously-skip-permissions")
         return LaunchPlan(binary=binary, args=args, env=self._runtime_env(config, model))
+
+    @staticmethod
+    def _normalize_resume(args: list[str]) -> list[str]:
+        """Rewrite the `resume` subcommand into the `--resume` flag."""
+        if args and args[0] == "resume":
+            return ["--resume", *args[1:]]
+        return args
 
     @staticmethod
     def _is_managed_subcommand(args: list[str]) -> bool:
