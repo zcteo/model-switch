@@ -16,6 +16,10 @@ CLAUDE_HOME = HOME / "claude"
 CLAUDE_SETTINGS = CLAUDE_HOME / "settings.json"
 CLAUDE_STATUSLINE = CLAUDE_HOME / "statusline.py"
 CLAUDE_JSON = CLAUDE_HOME / ".claude.json"
+PI_HOME = HOME / "pi"
+PI_AGENT_HOME = PI_HOME / "agent"
+PI_MODELS = PI_AGENT_HOME / "models.json"
+PI_SETTINGS = PI_AGENT_HOME / "settings.json"
 
 
 def ensure_home() -> Path:

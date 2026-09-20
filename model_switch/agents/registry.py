@@ -6,9 +6,10 @@ from ..storage import load_models
 from .base import AgentAdapter
 from .claude import ClaudeAdapter
 from .codex import CodexAdapter
+from .pi import PiAdapter
 
 _AGENTS: dict[str, AgentAdapter] = {
-    adapter.id: adapter for adapter in (ClaudeAdapter(), CodexAdapter())
+    adapter.id: adapter for adapter in (ClaudeAdapter(), CodexAdapter(), PiAdapter())
 }
 
 

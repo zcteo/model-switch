@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "model-switch"
-version = "0.2.0"
-description = "Fetch models from one aggregated backend and switch Claude Code / Codex models locally"
+version = "0.3.0"
+description = "Fetch models from one aggregated backend and switch Claude Code / Codex / Pi models locally"
 requires-python = ">=3.11"
 dependencies = []
 

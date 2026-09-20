@@ -3,7 +3,7 @@
 一个纯本地 Python CLI。它只做两件事：
 
 1. 从一个聚合后端获取模型列表；
-2. 一键切换 Claude Code / Codex 的当前模型。
+2. 一键切换 Claude Code / Codex / Pi 的当前模型。
 
 ## 安装
 
@@ -101,13 +101,13 @@ sudo python3 -m pip uninstall model-switch
 rm -rf model_switch.egg-info/
 ```
 
-如需彻底清理 `ms` 保存的后端配置、模型列表，以及隔离的 Claude/Codex 配置，可删除：
+如需彻底清理 `ms` 保存的后端配置、模型列表，以及隔离的 Claude/Codex/Pi 配置，可删除：
 
 ```bash
 rm -rf ~/.model-switch
 ```
 
-注意：这会删除本地模型数据和模型切换配置，不会修改原生 `~/.claude` 和 `~/.codex` 配置目录。
+注意：这会删除本地模型数据和模型切换配置，不会修改原生 `~/.claude`、`~/.codex` 和 `~/.pi` 配置目录。
 
 ## 配置聚合后端
 
@@ -161,7 +161,7 @@ ms models          # Status 列显示 on / off / stale
 ms use
 ```
 
-界面里先用 ↑/↓ 移动，enter 确认；All agents 会同时选中 Claude Code 和 Codex。
+界面里先用 ↑/↓ 移动，enter 确认；All agents 会同时选中 Claude Code、Codex 和 Pi。
 
 也可以直接指定模型，跳过交互，一次切换全部 agent：
 
@@ -212,7 +212,26 @@ claude --settings ~/.model-switch/claude/settings.json
 CODEX_HOME=~/.model-switch/codex
 ```
 
-原生 `~/.claude/settings.json` 和 `~/.codex/config.toml` 不会被修改。
+### Pi Agent
+
+注入文件放在：
+
+```text
+~/.model-switch/pi/agent/models.json
+~/.model-switch/pi/agent/settings.json
+```
+
+`ms pi` 启动时会通过以下方式生效：
+
+```text
+PI_CODING_AGENT_DIR=~/.model-switch/pi/agent
+```
+
+`models.json` 里只声明一个 `model-switch` provider，模型按自身 `supported_apis` 挑一个 pi 支持的接口，优先级为 `chat → responses → claude_native`（依次对应 pi 的 `openai-completions`、`openai-responses`、`anthropic-messages`），并在模型级别覆盖 `api` 与 `baseUrl`。密钥通过 `MODEL_SWITCH_API_KEY` 环境变量在请求时解析，不落盘到 `models.json`。
+
+思考档位：模型未声明 `reasoning_levels` 时按 `low/medium/high` 处理，`settings.json` 的默认档位取 `high`；把某个模型的 `reasoning_levels` 设为空数组即可关闭该模型的思考。`off` 始终保留，可以在 pi 里临时关掉思考。
+
+隔离目录与原生的 `~/.pi/agent` 只共享资源、不共享状态：`extensions`、`skills`、`prompts`、`themes`、`tools`、`bin`、`npm`、`git`、`auth.json` 会自动软链接过去，而 `settings.json`、`models.json`、`sessions` 各自独立。原生 `~/.claude/settings.json`、`~/.codex/config.toml` 和 `~/.pi/agent/models.json` 都不会被修改。
 
 ## 自动化与权限参数
 
@@ -231,6 +250,11 @@ CODEX_HOME=~/.model-switch/codex
   - `sandbox_mode = "danger-full-access"`
   - `approval_policy = "never"`
   - TUI 状态栏显示模型、目录和剩余上下文
+- Pi 隔离配置：
+  - `defaultProjectTrust: "always"`（不再询问项目信任）
+  - `defaultProvider` / `defaultModel` 指向当前选择的模型
+  - `defaultThinkingLevel: high`（若模型支持）
+  - `PI_SKIP_VERSION_CHECK=1`、`PI_TELEMETRY=0`
 
 Claude 的管理子命令（例如 `config`、`doctor`、`mcp`）不会自动追加 `--dangerously-skip-permissions`。如果以 root 运行，也会像 `sc` 一样跳过该启动参数。
 
@@ -239,6 +263,7 @@ Claude 的管理子命令（例如 `config`、`doctor`、`mcp`）不会自动追
 ```bash
 ms claude -- --help
 ms codex -- --help
+ms pi -- --help
 ```
 
 ## 本地模型能力修改
@@ -271,7 +296,7 @@ class ExampleAdapter(AgentAdapter):
 ```python
 _AGENTS = {
     adapter.id: adapter
-    for adapter in (ClaudeAdapter(), CodexAdapter(), ExampleAdapter())
+    for adapter in (ClaudeAdapter(), CodexAdapter(), PiAdapter(), ExampleAdapter())
 }
 ```
 
@@ -284,6 +309,7 @@ _AGENTS = {
 ```bash
 ms claude resume <session-id>
 ms codex resume <session-id>
+ms pi resume <session-id>
 ```
 
 不需要通过 `--` 透传。省略 `<session-id>` 时，会使用原工具自己的会话选择器：
@@ -291,4 +317,9 @@ ms codex resume <session-id>
 ```bash
 ms claude resume
 ms codex resume
+ms pi resume
 ```
+
+Pi 没有 `resume` 子命令，`ms pi resume` 会被翻译成 `pi --resume`（选择器）或 `pi --session <session-id>`。
+
+Pi 的会话存放在隔离目录里（`~/.model-switch/pi/agent/sessions`），与原生的 `pi` 会话互不影响。
