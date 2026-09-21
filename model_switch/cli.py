@@ -17,6 +17,7 @@ from .agents import (
     list_agents,
     refresh_agent_config,
     switch_model,
+    sync_agent_instructions,
 )
 from .core import backend_url, fetch_models, pick_model
 from .storage import ensure_home, load_config, load_models, save_config, save_models
@@ -298,13 +299,53 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=15.0)
     p.set_defaults(func=cmd_use)
 
-    for agent in list_agents():
-        p = subs.add_parser(agent.id, help=f"注入并启动 {agent.label}")
-        p.add_argument("args", nargs=argparse.REMAINDER)
-        p.set_defaults(func=cmd_launch)
-
+    agent_ids = _register_agent_parsers(subs)
+    # agent 子命令在 help 里合并成一条，新增 agent 只会加长这一条，不会撑爆菜单。
+    _merge_agent_help(subs, agent_ids)
     subs.add_parser("status", help="查看当前状态").set_defaults(func=lambda _args: cmd_status())
+    _collapse_usage_commands(subs)
     return parser
+
+
+def _register_agent_parsers(subs: argparse._SubParsersAction) -> list[str]:
+    """注册每个 agent 的启动子命令，但不在上层 help 里单独列出。"""
+    agent_ids: list[str] = []
+    for adapter in list_agents():
+        # 不传 help：argparse 会据此生成独立的 help 条目，这里只要 description。
+        parser = subs.add_parser(
+            adapter.id,
+            description=f"注入隔离配置并启动 {adapter.label}",
+        )
+        parser.add_argument("args", nargs=argparse.REMAINDER)
+        parser.set_defaults(func=cmd_launch)
+        agent_ids.append(adapter.id)
+    return agent_ids
+
+
+def _merge_agent_help(subs: argparse._SubParsersAction, agent_ids: list[str]) -> None:
+    """把所有 agent 子命令折叠成一条 help 项，例如 `claude|codex|pi`。
+
+    argparse 没有子命令分组，只能往 `_choices_actions` 里塞一条伪 action；
+    该属性缺失时保持静默（此时 agent 命令不显示在 help 里，但依然可用）。
+    """
+    if not agent_ids:
+        return
+    pseudo_action = getattr(argparse._SubParsersAction, "_ChoicesPseudoAction", None)
+    if pseudo_action is None:
+        return
+    label = "|".join(agent_ids)
+    subs._choices_actions.append(
+        pseudo_action(label, [], f"注入隔离配置并启动 agent（{' / '.join(agent_ids)}）")
+    )
+
+
+def _collapse_usage_commands(subs: argparse._SubParsersAction) -> None:
+    """让 usage 行也用折叠后的名字，避免 agent 变多时 usage 越写越长。"""
+    actions = getattr(subs, "_choices_actions", None)
+    labels = [getattr(action, "metavar", None) for action in actions or []]
+    labels = [label for label in labels if label]
+    if labels:
+        subs.metavar = "{" + ",".join(labels) + "}"
 
 
 def main() -> None:
@@ -317,6 +358,8 @@ def main() -> None:
         parser.print_help()
         return
     ensure_home()
+    # 共享指令的注入与模型无关：每次运行都对齐一次，避免依赖用户先跑过 ms use。
+    sync_agent_instructions()
     try:
         args.func(args)
     except KeyboardInterrupt:

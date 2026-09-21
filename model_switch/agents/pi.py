@@ -108,6 +108,8 @@ class PiAdapter(AgentAdapter):
     endpoint = "/v1/chat/completions"
     default_binary = "pi"
     binary_env = "MODEL_SWITCH_PI_BIN"
+    instructions_dir = PI_AGENT_HOME
+    instructions_name = "AGENTS.md"
     supported_apis = tuple(agent_api for agent_api, _ in API_CHOICES)
 
     def supports(self, model: dict[str, Any]) -> bool:

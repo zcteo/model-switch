@@ -233,6 +233,34 @@ PI_CODING_AGENT_DIR=~/.model-switch/pi/agent
 
 隔离目录与原生的 `~/.pi/agent` 只共享资源、不共享状态：`extensions`、`skills`、`prompts`、`themes`、`tools`、`bin`、`npm`、`git`、`auth.json` 会自动软链接过去，而 `settings.json`、`models.json`、`sessions` 各自独立。原生 `~/.claude/settings.json`、`~/.codex/config.toml` 和 `~/.pi/agent/models.json` 都不会被修改。
 
+## 共享指令注入（AGENTS.md）
+
+`model_switch/AGENTS.md` 是各 agent 共享指令的唯一真源，随包一起分发（该文件必须存在，否则注入会静默跳过）。
+
+每次运行 `ms` 的任何子命令都会把它同步到每个 agent 的隔离目录：
+
+```text
+~/.model-switch/claude/CLAUDE.md         Claude Code
+~/.model-switch/codex/AGENTS.md          Codex
+~/.model-switch/pi/agent/AGENTS.md       Pi
+```
+
+- Claude Code 只认 `CLAUDE.md`，不读 `AGENTS.md`，所以它的文件名与另外两个不同。
+- 这些文件是**生成物**：同名文件（包括指向别处的软链）会被直接覆写，要改内容请改真源，然后运行任意 `ms` 命令。
+- 内容与真源一致时跳过写入，重复运行不会反复改动 mtime。
+- 注入与模型选择无关，所以 `ms status` 这类命令也会完成同步；原生 `~/.claude`、`~/.codex`、`~/.pi` 不受影响。
+
+核对是否生效：
+
+```bash
+md5sum model_switch/AGENTS.md \
+  ~/.model-switch/claude/CLAUDE.md \
+  ~/.model-switch/codex/AGENTS.md \
+  ~/.model-switch/pi/agent/AGENTS.md
+```
+
+四份 md5 应完全一致。
+
 ## 自动化与权限参数
 
 `ms claude` 会像 `sc` 一样自动注入隔离运行所需的参数和环境变量：
@@ -246,6 +274,7 @@ PI_CODING_AGENT_DIR=~/.model-switch/pi/agent
   - `effortLevel: high`（若模型支持）
   - `CLAUDE_CODE_SANDBOXED=1`
   - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+  - `CLAUDE_CODE_ATTRIBUTION_HEADER=0`（不发送归属头）
 - Codex 隔离配置：
   - `sandbox_mode = "danger-full-access"`
   - `approval_policy = "never"`
@@ -286,6 +315,8 @@ class ExampleAdapter(AgentAdapter):
     endpoint = "/v1/responses"
     default_binary = "example"
     binary_env = "MODEL_SWITCH_EXAMPLE_BIN"
+    instructions_dir = EXAMPLE_HOME          # 隔离目录（在 storage.py 里定义）
+    instructions_name = "AGENTS.md"          # 该 agent 默认读取的全局指令文件名
 
     def switch(self, config, model, model_ids): ...
     def launch(self, config, model, passthrough_args): ...
@@ -300,7 +331,9 @@ _AGENTS = {
 }
 ```
 
-加入后，`ms use`、`ms status`、`--example-only` 和 `ms example` 会自动出现，不需要再修改 UI 或 CLI 主流程。
+加入后，`ms use`、`ms status` 和 `ms example` 会自动出现，共享指令也会注入到它的隔离目录，不需要再修改 UI 或 CLI 主流程。
+
+顶层 `ms --help` 里所有 agent 命令折叠成一条（形如 `claude|codex|pi`），新增 agent 只会加长这一条，不会让菜单越列越长。
 
 ## 恢复会话
 

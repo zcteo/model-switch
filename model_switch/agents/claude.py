@@ -19,6 +19,8 @@ from ..storage import (
 from .base import AgentAdapter, LaunchPlan
 
 CLAUDE_DEFAULT_ENV = {
+    # 0 = 不发送归属头（Claude Code 把 0/false/no/off 视为 opt-out）。
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "DISABLE_AUTOUPDATER": "1",
@@ -77,6 +79,9 @@ class ClaudeAdapter(AgentAdapter):
     endpoint = "/v1/messages"
     default_binary = "claude"
     binary_env = "MODEL_SWITCH_CLAUDE_BIN"
+    # Claude Code 只认 CLAUDE.md，不读 AGENTS.md。
+    instructions_dir = CLAUDE_HOME
+    instructions_name = "CLAUDE.md"
 
     def _runtime_env(self, config: dict[str, Any], model: dict[str, Any]) -> dict[str, str]:
         env = {

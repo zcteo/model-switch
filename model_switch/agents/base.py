@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -21,6 +22,12 @@ class AgentAdapter(ABC):
     endpoint: str
     default_binary: str
     binary_env: str
+    # 隔离目录里承载共享指令的文件（agent 启动时默认读取的全局指令文件）。
+    instructions_dir: Path
+    instructions_name: str = "AGENTS.md"
+
+    def instructions_path(self) -> Path | None:
+        return self.instructions_dir / self.instructions_name
 
     def supports(self, model: dict[str, Any]) -> bool:
         return self.required_api in model.get("supported_apis", [])

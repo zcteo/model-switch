@@ -107,6 +107,8 @@ class CodexAdapter(AgentAdapter):
     endpoint = "/v1/responses"
     default_binary = "codex"
     binary_env = "MODEL_SWITCH_CODEX_BIN"
+    instructions_dir = CODEX_HOME
+    instructions_name = "AGENTS.md"
 
     def _runtime_env(self, config: dict[str, Any]) -> dict[str, str]:
         return {
