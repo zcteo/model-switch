@@ -79,9 +79,9 @@ class ClaudeAdapter(AgentAdapter):
     endpoint = "/v1/messages"
     default_binary = "claude"
     binary_env = "MODEL_SWITCH_CLAUDE_BIN"
-    # Claude Code 只认 CLAUDE.md，不读 AGENTS.md。
+    # Claude Code 现在同样支持 AGENTS.md，统一与其它 agent 对齐使用 AGENTS.md。
     instructions_dir = CLAUDE_HOME
-    instructions_name = "CLAUDE.md"
+    instructions_name = "AGENTS.md"
 
     def _runtime_env(self, config: dict[str, Any], model: dict[str, Any]) -> dict[str, str]:
         env = {
