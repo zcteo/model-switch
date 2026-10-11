@@ -159,7 +159,8 @@ class CodexAdapter(AgentAdapter):
         binary = os.environ.get(self.binary_env, self.default_binary)
         # 显式锁死模型：Codex 会把 cwd 所在目录的配置当项目级配置加载，
         # 例如在 home 目录启动时 ~/.codex/config.toml 里的 model 会覆盖
-        # ms 写入的 CODEX_HOME/config.toml。用 -c 命令行覆盖兜底，避免
-        # 换了启动目录就失效。
-        args = ["-c", f'model="{model["id"]}"', *passthrough_args]
+        # ms 写入的 CODEX_HOME/config.toml。用 --model 命令行参数兜底，
+        # 换启动目录也不会失效；不用 -c 是因为配置覆盖会强制 embedded
+        # 模式，从而弹出 “Running without the shared background server” 警告。
+        args = ["--model", model["id"], *passthrough_args]
         return LaunchPlan(binary=binary, args=args, env=self._runtime_env(config))
