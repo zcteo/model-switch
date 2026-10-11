@@ -90,6 +90,10 @@ class ClaudeAdapter(AgentAdapter):
             "ANTHROPIC_AUTH_TOKEN": config.get("api_key", ""),
             "CLAUDE_CODE_MAX_CONTEXT_TOKENS": str(model.get("context_window", 1_000_000)),
         }
+        # 显式固定所选模型：ANTHROPIC_MODEL 的优先级高于 settings.json 的
+        # model 字段，若不覆盖，shell 里继承下来的 ANTHROPIC_MODEL（例如
+        # 用户手动 export 的其它模型）会让 Claude Code 忽略 ms 的选择。
+        env["ANTHROPIC_MODEL"] = model["id"]
         env.update(CLAUDE_DEFAULT_ENV)
         if os.geteuid() != 0:
             env.setdefault("CLAUDE_CODE_SANDBOXED", "1")

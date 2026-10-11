@@ -157,4 +157,9 @@ class CodexAdapter(AgentAdapter):
         passthrough_args: list[str],
     ) -> LaunchPlan:
         binary = os.environ.get(self.binary_env, self.default_binary)
-        return LaunchPlan(binary=binary, args=list(passthrough_args), env=self._runtime_env(config))
+        # 显式锁死模型：Codex 会把 cwd 所在目录的配置当项目级配置加载，
+        # 例如在 home 目录启动时 ~/.codex/config.toml 里的 model 会覆盖
+        # ms 写入的 CODEX_HOME/config.toml。用 -c 命令行覆盖兜底，避免
+        # 换了启动目录就失效。
+        args = ["-c", f'model="{model["id"]}"', *passthrough_args]
+        return LaunchPlan(binary=binary, args=args, env=self._runtime_env(config))
