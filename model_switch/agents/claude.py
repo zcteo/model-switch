@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,23 @@ def _claude_statusline() -> dict[str, Any]:
     }
 
 
+def _trust_current_project(claude_json: dict[str, Any], allow: list[str]) -> None:
+    """把当前工作目录标记为已信任。
+
+    model-switch 是自动化环境（--dangerously-skip-permissions +
+    skipDangerousModePermissionPrompt），不会弹信任对话框。若不加信任，
+    Claude Code 会把 settings.json 里的 permissions.allow 视为「工作区未信任」
+    而忽略并打印警告。
+    """
+    root = os.path.realpath(os.getcwd())
+    project = claude_json.setdefault("projects", {}).setdefault(root, {})
+    project["hasTrustDialogAccepted"] = True
+    project.setdefault("trustDialogAcceptedAt", int(time.time() * 1000))
+    allowed = set(project.get("allowedTools") or [])
+    allowed.update(a for a in allow if isinstance(a, str))
+    project["allowedTools"] = sorted(allowed)
+
+
 class ClaudeAdapter(AgentAdapter):
     id = "claude"
     label = "Claude Code / cc"
@@ -136,6 +154,10 @@ class ClaudeAdapter(AgentAdapter):
             }
             for model_id in model_ids
         ]
+        _trust_current_project(
+            claude_json,
+            list((settings.get("permissions") or {}).get("allow") or []),
+        )
         atomic_write(CLAUDE_JSON, json.dumps(claude_json, ensure_ascii=False, indent=2) + "\n")
 
     def launch(
