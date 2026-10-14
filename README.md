@@ -7,6 +7,8 @@
 
 支持 Python 3.8+（Ubuntu 20.04 系统自带的 3.8 即可直接运行；解析 `config.toml` 时会自动用到 `tomli` backport，随包安装）。
 
+兼容环境为 Ubuntu 20.04 / 22.04 / 24.04（对应系统自带 Python 3.8 / 3.10 / 3.12）。代码层面已做降级适配：`tomllib` 在 3.11 以下回退到 `tomli`、`importlib.resources` 兼容不同版本、`argparse.BooleanOptionalAction` 在 3.9 以下回退为手动实现，四套系统均应开箱即用。
+
 ## 安装
 
 开发模式安装（推荐，源码修改后立即生效）：
@@ -242,12 +244,12 @@ PI_CODING_AGENT_DIR=~/.model-switch/pi/agent
 每次运行 `ms` 的任何子命令都会把它同步到每个 agent 的隔离目录：
 
 ```text
-~/.model-switch/claude/AGENTS.md         Claude Code
+~/.model-switch/claude/CLAUDE.md         Claude Code
 ~/.model-switch/codex/AGENTS.md          Codex
 ~/.model-switch/pi/agent/AGENTS.md       Pi
 ```
 
-- 三个 agent 现在统一使用 `AGENTS.md`：Claude Code 已支持 `AGENTS.md`，文件名不再需要与其它 agent 区分。
+- Claude Code 只认 `CLAUDE.md`，不读 `AGENTS.md`，所以它的文件名与另外两个不同。
 - 这些文件是**生成物**：同名文件（包括指向别处的软链）会被直接覆写，要改内容请改真源，然后运行任意 `ms` 命令。
 - 内容与真源一致时跳过写入，重复运行不会反复改动 mtime。
 - 注入与模型选择无关，所以 `ms status` 这类命令也会完成同步；原生 `~/.claude`、`~/.codex`、`~/.pi` 不受影响。
@@ -256,7 +258,7 @@ PI_CODING_AGENT_DIR=~/.model-switch/pi/agent
 
 ```bash
 md5sum model_switch/AGENTS.md \
-  ~/.model-switch/claude/AGENTS.md \
+  ~/.model-switch/claude/CLAUDE.md \
   ~/.model-switch/codex/AGENTS.md \
   ~/.model-switch/pi/agent/AGENTS.md
 ```
