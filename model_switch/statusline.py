@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
-from pathlib import Path
-from typing import Any
 
 
 def format_k(value: int) -> str:
@@ -13,12 +12,6 @@ def format_k(value: int) -> str:
     if number.is_integer():
         return f"{int(number)}k"
     return f"{number:.1f}k"
-
-
-def basename(value: Any) -> str:
-    if not isinstance(value, str) or not value:
-        return ""
-    return Path(value.replace("\\", "/")).name
 
 
 def main() -> None:
@@ -45,9 +38,30 @@ def main() -> None:
     if not isinstance(workspace, dict):
         workspace = {}
     project = workspace.get("project_dir") or workspace.get("current_dir") or payload.get("cwd") or ""
-    project = basename(project)
-    parts = [tokens, f" | {project}"] if project else [tokens]
-    print("".join(parts))
+    # 把家目录前缀替换成 ~：/home/<user>/foo → ~/foo
+    home = os.path.expanduser("~")
+    if project == home:
+        project = "~"
+    elif project.startswith(home + os.sep):
+        project = "~" + project[len(home):]
+
+    # 模型：优先用 statusLine JSON 里的 model 字段（新版 Claude Code 传的是
+    # dict，取其中的 id）；取不到则回退到 ANTHROPIC_MODEL（ms 启动时注入，
+    # 子进程会继承）。
+    raw_model = payload.get("model")
+    if isinstance(raw_model, dict):
+        model = raw_model.get("id") or raw_model.get("display_name") or ""
+    else:
+        model = raw_model or os.environ.get("ANTHROPIC_MODEL") or ""
+    model = str(model)
+
+    parts = []
+    if model:
+        parts.append(model)
+    if project:
+        parts.append(project)
+    parts.append(tokens)
+    print(" · ".join(parts))
 
 
 if __name__ == "__main__":
