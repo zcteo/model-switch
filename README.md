@@ -5,6 +5,8 @@
 1. 从一个聚合后端获取模型列表；
 2. 一键切换 Claude Code / Codex / Pi 的当前模型。
 
+支持 Python 3.8+（Ubuntu 20.04 系统自带的 3.8 即可直接运行；解析 `config.toml` 时会自动用到 `tomli` backport，随包安装）。
+
 ## 安装
 
 开发模式安装（推荐，源码修改后立即生效）：

@@ -23,6 +23,26 @@ from .core import backend_url, fetch_models, pick_model
 from .storage import ensure_home, load_config, load_models, save_config, save_models
 
 
+# argparse.BooleanOptionalAction 是 Python 3.9+ 才有的；在 3.8 上退化成一个
+# 手动处理 `--flag/--no-flag` 的 action，保证旧版本也能解析同样的参数。
+if hasattr(argparse, "BooleanOptionalAction"):
+    _BoolOpt = argparse.BooleanOptionalAction
+else:
+
+    class _BoolOpt(argparse.Action):
+        def __init__(self, option_strings, dest, default=None, help=None, **kwargs):
+            # 模仿官方 BooleanOptionalAction：为每个选项补一个 --no- 前缀的变体，
+            # 例如 `--enabled` -> `--enabled` / `--no-enabled`。
+            if any(s.startswith("--no-") for s in option_strings):
+                raise ValueError("BooleanOptionalAction 不接受额外的 --no- 前缀选项")
+            negated = [s.replace("--", "--no-", 1) for s in option_strings if s.startswith("--")]
+            option_strings = [*option_strings, *negated]
+            super().__init__(option_strings, dest, default=default, nargs=0, help=help, **kwargs)
+
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, not option_string.startswith("--no-"))
+
+
 def mask(value: str | None) -> str:
     if not value:
         return ""
@@ -282,12 +302,12 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("model")
     st.add_argument("--display-name")
     st.add_argument("--context-window", type=int)
-    st.add_argument("--vision", action=argparse.BooleanOptionalAction)
+    st.add_argument("--vision", action=_BoolOpt)
     st.add_argument("--reasoning", nargs="+")
     st.add_argument("--apis", nargs="+", choices=["chat", "responses", "claude_native"])
-    st.add_argument("--enabled", action=argparse.BooleanOptionalAction)
-    st.add_argument("--tool-call", action=argparse.BooleanOptionalAction)
-    st.add_argument("--streaming", action=argparse.BooleanOptionalAction)
+    st.add_argument("--enabled", action=_BoolOpt)
+    st.add_argument("--tool-call", action=_BoolOpt)
+    st.add_argument("--streaming", action=_BoolOpt)
     st.set_defaults(func=cmd_models_set)
 
     p = subs.add_parser("use", help="交互式选择并切换模型")

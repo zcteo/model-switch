@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import hashlib
-from importlib.resources import files
 from pathlib import Path
+
+# importlib.resources.files（以及 pathlib 风格 API）是 Python 3.9+ 才有的；
+# 3.8 退回到等价的 read_text，保证包内 AGENTS.md 在旧版本也能读取。
+try:  # Python >= 3.9
+    from importlib.resources import files as _resources_files
+
+    def _read_bundled() -> str:
+        return (
+            _resources_files(PACKAGE)
+            .joinpath(INSTRUCTIONS_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+
+except ImportError:  # Python 3.8
+    from importlib import resources as _resources
+
+    def _read_bundled() -> str:
+        return _resources.read_text(PACKAGE, INSTRUCTIONS_RESOURCE)
 
 from ..storage import atomic_write
 from .registry import list_agents
@@ -15,7 +32,7 @@ PACKAGE = "model_switch"
 def source_text() -> str | None:
     """读取包内共享指令；包被裁剪掉该文件时返回 None。"""
     try:
-        return files(PACKAGE).joinpath(INSTRUCTIONS_RESOURCE).read_text(encoding="utf-8")
+        return _read_bundled()
     except (FileNotFoundError, IsADirectoryError, ModuleNotFoundError, OSError, TypeError):
         return None
 

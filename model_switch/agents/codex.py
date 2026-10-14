@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import json
 import os
-import tomllib
 from typing import Any
+
+try:
+    import tomllib  # Python >= 3.11
+except ImportError:  # Python < 3.11
+    try:
+        import tomli as tomllib  # 第三方 backport
+    except ImportError:
+        tomllib = None
 
 from ..core import openai_base_url, default_reasoning_level
 from ..storage import (
@@ -126,6 +133,8 @@ class CodexAdapter(AgentAdapter):
         base = openai_base_url(config)
         data: dict[str, Any] = {}
         if CODEX_CONFIG.exists():
+            if tomllib is None:
+                raise RuntimeError("解析 config.toml 需要 tomllib（Python>=3.11）或 tomli；请安装 tomli")
             with CODEX_CONFIG.open("rb") as f:
                 data = tomllib.load(f)
         CODEX_HOME.mkdir(parents=True, exist_ok=True, mode=0o700)
