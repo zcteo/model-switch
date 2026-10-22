@@ -231,7 +231,7 @@ CODEX_HOME=~/.model-switch/codex
 PI_CODING_AGENT_DIR=~/.model-switch/pi/agent
 ```
 
-`models.json` 里只声明一个 `model-switch` provider，模型按自身 `supported_apis` 挑一个 pi 支持的接口，优先级为 `chat → responses → claude_native`（依次对应 pi 的 `openai-completions`、`openai-responses`、`anthropic-messages`），并在模型级别覆盖 `api` 与 `baseUrl`。密钥通过 `MODEL_SWITCH_API_KEY` 环境变量在请求时解析，不落盘到 `models.json`。
+`models.json` 里只声明一个 `model-switch` provider，模型按自身 `supported_apis` 挑一个 pi 支持的接口，优先级为 `responses → chat → claude_native`（依次对应 pi 的 `openai-responses`、`openai-completions`、`anthropic-messages`）；名称含 `claude` 且支持 Anthropic Messages 的模型会优先使用 `anthropic-messages`，并在模型级别覆盖 `api`、`baseUrl` 与 `compat`：两个 OpenAI 接口固定声明 `sendSessionAffinityHeaders` 与 `sessionAffinityFormat: "openai"`，Anthropic Messages 只声明 `sendSessionAffinityHeaders`。密钥通过 `MODEL_SWITCH_API_KEY` 环境变量在请求时解析，不落盘到 `models.json`。
 
 思考档位：模型未声明 `reasoning_levels` 时按 `low/medium/high` 处理，`settings.json` 的默认档位取 `high`；把某个模型的 `reasoning_levels` 设为空数组即可关闭该模型的思考。`off` 始终保留，可以在 pi 里临时关掉思考。
 

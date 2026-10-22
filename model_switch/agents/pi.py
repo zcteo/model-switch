@@ -22,13 +22,22 @@ from ..storage import (
 from .base import AgentAdapter, LaunchPlan
 
 # pi 的 models.json 以 provider 为最小配置单位，一个 provider 只能有一套 api/baseUrl，
-# 因此这里按模型声明的 supported_apis 挑一个可用接口，再在模型级别覆盖 api/baseUrl。
-# 顺序即优先级：chat completions 兼容性最好，其次是 responses，最后是 Anthropic Messages。
+# 因此这里按模型声明的 supported_apis 挑一个可用接口，再在模型级别覆盖 api/baseUrl/compat。
+# 顺序即优先级：优先走 OpenAI Responses，不支持时回退到 chat completions，
+# 最后才是 Anthropic Messages。
 API_CHOICES = (
-    ("chat", "openai-completions"),
     ("responses", "openai-responses"),
+    ("chat", "openai-completions"),
     ("claude_native", "anthropic-messages"),
 )
+
+OPENAI_COMPAT = {
+    "sendSessionAffinityHeaders": True,
+    "sessionAffinityFormat": "openai",
+}
+ANTHROPIC_COMPAT = {
+    "sendSessionAffinityHeaders": True,
+}
 
 DEFAULT_REASONING_LEVELS = ["low", "medium", "high"]
 PI_THINKING_LEVELS = ("minimal", "low", "medium", "high", "xhigh", "max")
@@ -74,6 +83,11 @@ def _ensure_pi_links() -> None:
 
 def _pick_api(model: dict[str, Any]) -> tuple[str, str] | None:
     supported = model.get("supported_apis") or []
+    # 名称含 claude 的模型优先走 Anthropic Messages。
+    if "claude" in str(model.get("id", "")).lower():
+        for agent_api, pi_api in API_CHOICES:
+            if agent_api == "claude_native" and agent_api in supported:
+                return agent_api, pi_api
     for agent_api, pi_api in API_CHOICES:
         if agent_api in supported:
             return agent_api, pi_api
@@ -104,8 +118,8 @@ def _default_thinking_level(levels: list[str]) -> str:
 class PiAdapter(AgentAdapter):
     id = "pi"
     label = "Pi Agent"
-    required_api = "chat"
-    endpoint = "/v1/chat/completions"
+    required_api = "responses"
+    endpoint = "/v1/responses"
     default_binary = "pi"
     binary_env = "MODEL_SWITCH_PI_BIN"
     instructions_dir = PI_AGENT_HOME
@@ -149,6 +163,12 @@ class PiAdapter(AgentAdapter):
                 "name": model.get("display_name") or model_id,
                 "api": pi_api,
                 "baseUrl": anthropic_base if agent_api == "claude_native" else openai_base,
+                # 单一 provider 下无法按 api 写不同的 provider 级 compat，
+                # 因此在模型级固定声明：OpenAI 两个接口带 openai 格式，
+                # Anthropic Messages 只开启会话亲和、不写 format。
+                "compat": (
+                    ANTHROPIC_COMPAT if agent_api == "claude_native" else OPENAI_COMPAT
+                ),
                 "input": (
                     ["text", "image"]
                     if model.get("capabilities", {}).get("vision", True)
@@ -170,7 +190,7 @@ class PiAdapter(AgentAdapter):
                     "baseUrl": openai_base,
                     "apiKey": f"${API_KEY_ENV}",
                     "authHeader": True,
-                    "api": "openai-completions",
+                    "api": "openai-responses",
                     "models": models,
                 }
             }
