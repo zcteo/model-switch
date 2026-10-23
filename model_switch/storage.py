@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .compat import replace_file
+
 HOME = Path(os.environ.get("MODEL_SWITCH_HOME", Path.home() / ".model-switch"))
 CONFIG_FILE = HOME / "config.json"
 MODELS_FILE = HOME / "models.json"
@@ -39,12 +41,14 @@ def atomic_write(path: Path, text: str, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        # newline="\n"：Windows 上也不把 \n 转成 \r\n，保证生成物跨平台逐字节一致
+        # （README 里的 md5/Get-FileHash 对比依赖这一点）。
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
         os.chmod(tmp, mode)
-        os.replace(tmp, path)
+        replace_file(tmp, path)
     finally:
         try:
             os.unlink(tmp)

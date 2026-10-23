@@ -9,6 +9,8 @@
 
 兼容环境为 Ubuntu 20.04 / 22.04 / 24.04（对应系统自带 Python 3.8 / 3.10 / 3.12）。代码层面已做降级适配：`tomllib` 在 3.11 以下回退到 `tomli`、`importlib.resources` 兼容不同版本、`argparse.BooleanOptionalAction` 在 3.9 以下回退为手动实现，四套系统均应开箱即用。
 
+同时支持 Windows 10 / 11（Python 3.8+）：上下键菜单改用 `msvcrt` 读键、npm 安装的 `claude.cmd` / `codex.cmd` 自动经 `cmd.exe` 启动、没有软链权限时目录退回 junction。细节见「Windows 适配」。
+
 ## 安装
 
 开发模式安装（推荐，源码修改后立即生效）：
@@ -19,6 +21,15 @@ python3 -m pip install -e . --break-system-packages
 ```
 
 这种模式主要注册入口和源码路径映射。
+
+Windows 上改用 `py` 启动器，且不需要 `--break-system-packages`：
+
+```powershell
+cd C:\path\to\model-switch
+py -m pip install -e .
+```
+
+详见「Windows 适配」。
 
 如果希望把包完整安装到：
 
@@ -45,7 +56,7 @@ python3 -m pip install --upgrade . --break-system-packages
 
 ### PATH 排查
 
-如果 `which ms` 找不到命令，说明 `~/.local/bin` 不在 `PATH` 里。临时生效：
+Linux / macOS 用 `which ms`，Windows 用 `where ms`。如果找不到命令，说明安装目录不在 `PATH` 里。Linux 下临时生效：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -62,6 +73,12 @@ PATH 修好之前，也可以用模块方式启动（不依赖 PATH）：
 
 ```bash
 python3 -m model_switch --help
+```
+
+Windows 上对应的安装目录通常是 `%APPDATA%\Python\Python3xx\Scripts` 或 `%LOCALAPPDATA%\Programs\Python\Python3xx\Scripts`（以 `where python` 实际路径为准），模块方式启动用：
+
+```powershell
+py -m model_switch --help
 ```
 
 ### 安装到系统目录
@@ -99,6 +116,8 @@ python3 -m pip uninstall model-switch
 sudo python3 -m pip uninstall model-switch
 ```
 
+Windows 上直接执行 `py -m pip uninstall model-switch` 即可。
+
 如果在项目目录里，可以顺带删除本地的打包元数据：
 
 ```bash
@@ -111,7 +130,34 @@ rm -rf model_switch.egg-info/
 rm -rf ~/.model-switch
 ```
 
+Windows（PowerShell）：
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.model-switch"
+```
+
 注意：这会删除本地模型数据和模型切换配置，不会修改原生 `~/.claude`、`~/.codex` 和 `~/.pi` 配置目录。
+
+## Windows 适配
+
+Windows 10 / 11 与 Linux 共用同一套代码和隔离目录结构（`%USERPROFILE%\.model-switch`），平台差异集中处理在 `model_switch/compat.py` 和各 agent 适配器里：
+
+- **交互选择**：`ms use` 的上下键菜单在 Windows 上用 `msvcrt` 读取按键（`termios` / 管道 `select` 只在 POSIX 可用），并会尝试为旧版 `conhost` 打开 ANSI（VT）处理；Windows Terminal 无需额外设置。Ctrl+C 按取消处理。
+- **启动 agent**：npm 全局安装的 `claude` / `codex` 实际是 `.cmd` 包装，`CreateProcess` 不能直接执行，`ms` 会通过 `cmd.exe /d /c call ...` 启动；原生 `.exe` 安装包不受影响。用 `MODEL_SWITCH_CLAUDE_BIN` 等环境变量指定可执行文件时，同样支持完整路径。
+- **资源链接**：隔离目录需要引用原生目录里的 `projects`、`plugins`、`skills`、`themes` 等资源。Windows 普通用户未开启「开发者模式」时无法创建软链，目录会自动退回 junction（无需管理员权限），单个文件（如 `auth.json`）退回复制。
+- **配置文件替换**：Windows 上目标文件可能正被运行中的 agent 打开，`ms` 写入时会短暂重试 `os.replace`，避免偶发的 `PermissionError`。
+- **编辑器**：`ms model edit` 在 Windows 上默认用 `notepad`；设置了 `EDITOR` 时按 Windows 命令行规则拆分，支持 `"C:\Program Files\...\code.exe" -w` 这类写法，也支持 `.cmd` 包装。
+- **状态栏**：Claude Code 的 `statusLine` 命令按平台规则加引号；Windows 上路径转正斜杠并加双引号，Git Bash / cmd 都能执行。状态栏脚本的 stdin/stdout 固定 UTF-8，中文路径不会乱码。
+- **输出编码**：控制台重定向到文件/管道时，`✔`、`⚠` 等符号无法用本地代码页表示会自动替换，不会因为编码错误中断命令。
+
+核对共享指令注入时，PowerShell 可用：
+
+```powershell
+Get-FileHash model_switch\AGENTS.md,
+  "$env:USERPROFILE\.model-switch\claude\CLAUDE.md",
+  "$env:USERPROFILE\.model-switch\codex\AGENTS.md",
+  "$env:USERPROFILE\.model-switch\pi\agent\AGENTS.md" -Algorithm SHA256
+```
 
 ## 配置聚合后端
 
@@ -282,7 +328,7 @@ md5sum model_switch/AGENTS.md \
 - Codex 隔离配置：
   - `sandbox_mode = "danger-full-access"`
   - `approval_policy = "never"`
-  - TUI 状态栏显示模型、目录和剩余上下文
+  - TUI 状态栏显示模型、目录、剩余上下文和上下文窗口总大小
 - Pi 隔离配置：
   - `defaultProjectTrust: "always"`（不再询问项目信任）
   - `defaultProvider` / `defaultModel` 指向当前选择的模型

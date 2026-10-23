@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+from ..compat import agent_shell_command, is_root, link_or_copy
 from ..core import anthropic_base_url, default_reasoning_level
 from ..storage import (
     CLAUDE_HOME,
@@ -57,17 +57,15 @@ def _ensure_claude_links() -> None:
         target = CLAUDE_HOME / name
         if not source.exists() or target.exists():
             continue
-        try:
-            target.symlink_to(source, target_is_directory=source.is_dir())
-        except OSError:
-            pass
+        link_or_copy(source, target)
 
 
 def _claude_statusline() -> dict[str, Any]:
     script = Path(__file__).parent.parent / "statusline.py"
     return {
         "type": "command",
-        "command": f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}",
+        # Windows 上 Claude Code 用 Git Bash 执行，命令里用正斜杠路径。
+        "command": agent_shell_command([sys.executable, str(script)]),
         "refreshInterval": 1,
         "padding": 0,
     }
@@ -113,7 +111,7 @@ class ClaudeAdapter(AgentAdapter):
         # 用户手动 export 的其它模型）会让 Claude Code 忽略 ms 的选择。
         env["ANTHROPIC_MODEL"] = model["id"]
         env.update(CLAUDE_DEFAULT_ENV)
-        if os.geteuid() != 0:
+        if not is_root():
             env.setdefault("CLAUDE_CODE_SANDBOXED", "1")
         return env
 
@@ -133,7 +131,7 @@ class ClaudeAdapter(AgentAdapter):
         settings["env"] = env
         settings["model"] = model["id"]
         settings["availableModels"] = model_ids
-        settings.setdefault("skipDangerousModePermissionPrompt", os.geteuid() != 0)
+        settings.setdefault("skipDangerousModePermissionPrompt", not is_root())
         settings.setdefault("showThinkingSummaries", True)
         settings.setdefault("alwaysThinkingEnabled", True)
         settings.setdefault("crossSessionInbound", "accept")
@@ -170,7 +168,7 @@ class ClaudeAdapter(AgentAdapter):
         passthrough_args = self._normalize_resume(passthrough_args)
         args = ["--settings", str(CLAUDE_SETTINGS), *passthrough_args]
         if (
-            os.geteuid() != 0
+            not is_root()
             and not self._is_managed_subcommand(passthrough_args)
             and "--dangerously-skip-permissions" not in passthrough_args
         ):

@@ -14,7 +14,25 @@ def format_k(value: int) -> str:
     return f"{number:.1f}k"
 
 
+def _use_utf8_stdio() -> None:
+    """Windows 上管道默认走本地代码页，而 Claude Code 双向都按 UTF-8 处理。
+
+    状态栏的输入 JSON 和输出文本都可能包含中文，这里统一固定为 UTF-8。
+    """
+    if os.name != "nt":
+        return
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
+
 def main() -> None:
+    _use_utf8_stdio()
     try:
         payload = json.load(sys.stdin)
     except ValueError:
@@ -39,10 +57,11 @@ def main() -> None:
         workspace = {}
     project = workspace.get("project_dir") or workspace.get("current_dir") or payload.get("cwd") or ""
     # 把家目录前缀替换成 ~：/home/<user>/foo → ~/foo
+    # Windows 路径大小写不敏感且分隔符可能是 /，统一用 normcase 比较。
     home = os.path.expanduser("~")
-    if project == home:
+    if os.path.normcase(project) == os.path.normcase(home):
         project = "~"
-    elif project.startswith(home + os.sep):
+    elif os.path.normcase(project).startswith(os.path.normcase(home) + os.sep):
         project = "~" + project[len(home):]
 
     # 模型：优先用 statusLine JSON 里的 model 字段（新版 Claude Code 传的是

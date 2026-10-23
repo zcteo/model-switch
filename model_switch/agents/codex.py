@@ -23,6 +23,17 @@ from ..storage import (
 )
 from .base import AgentAdapter, LaunchPlan
 
+# Codex TUI 状态栏默认展示的条目：模型+思考档位、当前目录、上下文剩余百分比、
+# 上下文窗口总大小（tokens）。最后一项让用户能直接看到模型的总上下文容量。
+DEFAULT_STATUS_LINE = [
+    "model-with-reasoning",
+    "current-dir",
+    "context-remaining",
+    "context-window-size",
+]
+# 旧版本 ms 生成的默认值，重新生成时自动升级；用户自定义的其它组合保持不动。
+LEGACY_STATUS_LINE = ["model-with-reasoning", "current-dir", "context-remaining"]
+
 
 def _toml_key(key: str) -> str:
     if key and all(c.isalnum() or c in "-_" for c in key):
@@ -147,7 +158,9 @@ class CodexAdapter(AgentAdapter):
         data.setdefault("sandbox_mode", "danger-full-access")
         data.setdefault("approval_policy", "never")
         tui = dict(data.get("tui") or {})
-        tui.setdefault("status_line", ["model-with-reasoning", "current-dir", "context-remaining"])
+        status_line = tui.get("status_line")
+        if status_line is None or status_line == LEGACY_STATUS_LINE:
+            tui["status_line"] = list(DEFAULT_STATUS_LINE)
         data["tui"] = tui
         providers = data.get("model_providers") or {}
         providers["model-switch"] = {

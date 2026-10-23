@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import locale
 import os
-import select
 import sys
-import termios
 import unicodedata
 from typing import Any
+
+if os.name == "nt":  # Windows：控制台按键走 msvcrt，没有 termios/select
+    import msvcrt
+else:
+    import select
+    import termios
 
 from .agents import (
     agent_choices,
@@ -15,6 +19,7 @@ from .agents import (
     get_agent,
     switch_model,
 )
+from .compat import enable_windows_ansi
 from .storage import load_config, load_models
 
 
@@ -93,6 +98,20 @@ def _truncate(text: str, width: int) -> str:
 
 def _read_key() -> str:
     """Read one key, including ANSI arrow-key sequences."""
+    if os.name == "nt":
+        # msvcrt 返回的是单个宽字符；方向键以 \x00 / \xe0 + 扫描码给出。
+        char = msvcrt.getwch()
+        if char == "\x03":
+            raise KeyboardInterrupt
+        if char in ("\x00", "\xe0"):
+            second = msvcrt.getwch()
+            if second == "H":
+                return "\x1b[A"
+            if second == "P":
+                return "\x1b[B"
+            return ""
+        return char
+
     data = os.read(sys.stdin.fileno(), 1)
     if data != b"\x1b":
         return data.decode(errors="ignore")
@@ -145,10 +164,25 @@ def _render_menu(
     return printed_lines
 
 
-def _enter_cbreak(fd: int) -> None:
-    attr = termios.tcgetattr(fd)
+def _enter_cbreak(fd: int) -> Any:
+    """关闭行缓冲与回显，返回原始终端状态。
+
+    Windows 上 msvcrt.getwch 本身就不经过行缓冲、也不回显，无需切换。
+    """
+    if os.name == "nt":
+        enable_windows_ansi()
+        return None
+    original = termios.tcgetattr(fd)
+    attr = [*original]
     attr[3] &= ~(termios.ECHO | termios.ICANON)
     termios.tcsetattr(fd, termios.TCSADRAIN, attr)
+    return original
+
+
+def _restore_terminal(fd: int, saved: Any) -> None:
+    if os.name == "nt" or saved is None:
+        return
+    termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
 def select_one(title: str, rows: list[str], footer: str = "") -> int | None:
@@ -158,11 +192,10 @@ def select_one(title: str, rows: list[str], footer: str = "") -> int | None:
         raise SystemExit("需要交互式终端；请直接在 TTY 中运行")
 
     fd = sys.stdin.fileno()
-    old_termios = termios.tcgetattr(fd)
     index = 0
     rendered_lines = 0
+    saved = _enter_cbreak(fd)
     try:
-        _enter_cbreak(fd)
         sys.stdout.write("\x1b[?25l")
         while True:
             rendered_lines = _render_menu(title, rows, index, None, footer, rendered_lines)
@@ -178,7 +211,7 @@ def select_one(title: str, rows: list[str], footer: str = "") -> int | None:
     finally:
         sys.stdout.write("\x1b[?1003l\x1b[?25h\n")
         sys.stdout.flush()
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_termios)
+        _restore_terminal(fd, saved)
 
 
 def select_many(title: str, rows: list[str], selected_indexes: set[int], footer: str = "") -> set[int] | None:
@@ -188,12 +221,11 @@ def select_many(title: str, rows: list[str], selected_indexes: set[int], footer:
         raise SystemExit("需要交互式终端；请直接在 TTY 中运行")
 
     fd = sys.stdin.fileno()
-    old_termios = termios.tcgetattr(fd)
     index = 0
     rendered_lines = 0
     selected = set(range(len(rows)))
+    saved = _enter_cbreak(fd)
     try:
-        _enter_cbreak(fd)
         sys.stdout.write("\x1b[?25l")
         while True:
             rendered_lines = _render_menu(title, rows, index, selected, footer, rendered_lines)
@@ -214,7 +246,7 @@ def select_many(title: str, rows: list[str], selected_indexes: set[int], footer:
     finally:
         sys.stdout.write("\x1b[?25h\n")
         sys.stdout.flush()
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_termios)
+        _restore_terminal(fd, saved)
 
 
 def get_agent_choices() -> list[tuple[str, str]]:

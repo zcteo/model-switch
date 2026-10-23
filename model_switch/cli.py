@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import sys
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +18,7 @@ from .agents import (
     switch_model,
     sync_agent_instructions,
 )
+from .compat import DEFAULT_EDITOR, configure_stdio, launch_argv, split_command
 from .core import backend_url, fetch_models, pick_model
 from .storage import ensure_home, load_config, load_models, save_config, save_models
 
@@ -131,14 +131,16 @@ def cmd_models_edit(args: argparse.Namespace) -> None:
         raise SystemExit(f"未找到模型：{args.model}")
 
     before = json.dumps(model, ensure_ascii=False, sort_keys=True)
-    editor = os.environ.get("EDITOR", "vi").strip() or "vi"
+    editor = os.environ.get("EDITOR", "").strip() or DEFAULT_EDITOR
     fd, path = tempfile.mkstemp(prefix="model-switch-", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(model, f, ensure_ascii=False, indent=2)
             f.write("\n")
 
-        subprocess.run([*shlex.split(editor), path], check=True)
+        editor_parts = split_command(editor)
+        # 与启动 agent 一致：Windows 上 EDITOR 也可能指向 .cmd 包装。
+        subprocess.run(launch_argv(editor_parts[0], [*editor_parts[1:], path]), check=True)
         with open(path, "r", encoding="utf-8") as f:
             edited = json.load(f)
         if not isinstance(edited, dict):
@@ -237,13 +239,15 @@ def cmd_launch(args: argparse.Namespace) -> None:
     passthrough_args = args.args[1:] if args.args and args.args[0] == "--" else args.args
 
     plan = adapter.launch(config, model, passthrough_args)
-    if shutil.which(plan.binary) is None:
+    binary = shutil.which(plan.binary)
+    if binary is None:
         raise SystemExit(f"未找到可执行文件：{plan.binary}")
 
     env = os.environ.copy()
     env.update(plan.env)
     print(f"✔ {adapter.id} model: {model['id']} (ctx={model.get('context_window', '-')})")
-    raise SystemExit(subprocess.call([plan.binary, *plan.args], env=env))
+    # npm 在 Windows 上安装的是 .cmd 包装，launch_argv 会在需要时套一层 cmd.exe。
+    raise SystemExit(subprocess.call(launch_argv(binary, plan.args), env=env))
 
 
 def cmd_status() -> None:
@@ -369,6 +373,7 @@ def _collapse_usage_commands(subs: argparse._SubParsersAction) -> None:
 
 
 def main() -> None:
+    configure_stdio()
     parser = build_parser()
     args = parser.parse_args()
     if args.version:

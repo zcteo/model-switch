@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ..compat import link_or_copy
 from ..core import (
     DEFAULT_CONTEXT_WINDOW,
     anthropic_base_url,
@@ -75,10 +76,7 @@ def _ensure_pi_links() -> None:
         target = PI_AGENT_HOME / name
         if not source.exists() or target.exists():
             continue
-        try:
-            target.symlink_to(source, target_is_directory=source.is_dir())
-        except OSError:
-            pass
+        link_or_copy(source, target)
 
 
 def _pick_api(model: dict[str, Any]) -> tuple[str, str] | None:

@@ -2,14 +2,19 @@
 
 ## Build preferences
 
-This machine is a Linux development workstation.
+This machine may run Linux or Windows. Detect the platform before choosing shell commands; do not assume Linux.
 
 When building C++/CMake projects, prefer parallel builds.
 
 Recommended build parallelism:
 - Use all available CPU cores unless memory pressure is high, capped at a maximum of 64 jobs.
-- Determine the core count dynamically with `nproc`; if it exceeds 64, cap it at 64.
-- Default CMake build parallelism: `cmake --build build -j N`
+- Determine the core count dynamically:
+  - Linux: `nproc`
+  - Windows PowerShell: `$env:NUMBER_OF_PROCESSORS`
+  - Windows cmd: `%NUMBER_OF_PROCESSORS%`
+  - Git Bash: `nproc` if available, otherwise `$NUMBER_OF_PROCESSORS`
+- If it exceeds 64, cap it at 64.
+- Default CMake build parallelism: `cmake --build build -j N`; with the Visual Studio generator use `cmake --build build --parallel N`.
 - Default Make/Ninja parallelism: `make -j N` / `ninja -j N`
 
 If a build fails due to memory exhaustion, reduce parallelism to 8 jobs or fewer.
